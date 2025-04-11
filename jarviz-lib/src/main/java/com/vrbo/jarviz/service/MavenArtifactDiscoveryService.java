@@ -54,12 +54,42 @@ public class MavenArtifactDiscoveryService implements ArtifactDiscoveryService {
 
     @Override
     public File discoverArtifact(final Artifact artifact) throws ArtifactNotFoundException {
-        final File file = new File(toFullPath(localRepoPath, artifact.toFileName()));
-        if (!file.exists()) {
-            runMavenCopy(artifact);
+        // Try to find the file directly in the artifact directory first
+        final String artifactFileName = artifact.toFileName();
+        final String fullPath = toFullPath(localRepoPath, artifactFileName);
+        final File file = new File(fullPath);
+
+        if (file.exists()) {
+            log.info("Found artifact file locally at {}", fullPath);
+            return file;
         }
 
-        return file;
+        // Check if a file with similar name exists (without version or with different
+        // version format)
+        File directory = new File(localRepoPath);
+        File[] matchingFiles = directory.listFiles(f -> {
+            String name = f.getName().toLowerCase();
+            // Match files that start with the artifactId and have the right extension
+            return name.startsWith(artifact.getArtifactId().toLowerCase()) &&
+                    name.endsWith("." + artifact.getPackaging().toLowerCase());
+        });
+
+        if (matchingFiles != null && matchingFiles.length > 0) {
+            log.info("Found matching artifact file locally: {}", matchingFiles[0].getName());
+            return matchingFiles[0];
+        }
+
+        // If not found locally, try Maven as last resort
+        log.info("Artifact not found locally, attempting Maven download: {}", artifactFileName);
+        runMavenCopy(artifact);
+
+        // Check again after Maven attempt
+        if (file.exists()) {
+            return file;
+        }
+
+        throw new ArtifactNotFoundException(
+                String.format("Unable to find artifact %s locally or via Maven", artifactFileName));
     }
 
     private Process runMavenCopy(final Artifact artifact) throws ArtifactNotFoundException {
@@ -68,8 +98,9 @@ public class MavenArtifactDiscoveryService implements ArtifactDiscoveryService {
             log.info("Maven: fetching artifact {}", artifactMavenId);
 
             final String stripVersionSwitch = artifact.isVersionLatestOrRelease() ? "true" : "false";
-            final String mvnCommand = String.format("mvn dependency:copy -DoutputDirectory=%s -Dartifact=%s -Dmdep.stripVersion=%s",
-                                                    localRepoPath, artifactMavenId, stripVersionSwitch);
+            final String mvnCommand = String.format(
+                    "mvn dependency:copy -DoutputDirectory=%s -Dartifact=%s -Dmdep.stripVersion=%s",
+                    localRepoPath, artifactMavenId, stripVersionSwitch);
             final Process process = Runtime.getRuntime().exec(mvnCommand);
             boolean failed = false;
 
@@ -83,13 +114,14 @@ public class MavenArtifactDiscoveryService implements ArtifactDiscoveryService {
                 }
             } else {
                 failed = true;
-                log.error("Maven command failed to execute in {} seconds: {}\n Consider increasing mavenTimeOutSeconds config value.",
-                          mavenTimeOutSeconds, mvnCommand);
+                log.error(
+                        "Maven command failed to execute in {} seconds: {}\n Consider increasing mavenTimeOutSeconds config value.",
+                        mavenTimeOutSeconds, mvnCommand);
             }
 
             if (failed && !continueOnMavenError) {
                 throw new ArtifactNotFoundException(
-                    String.format("Unable to fetch the artifact %s from Maven repository", artifactMavenId));
+                        String.format("Unable to fetch the artifact %s from Maven repository", artifactMavenId));
             }
 
             return process;

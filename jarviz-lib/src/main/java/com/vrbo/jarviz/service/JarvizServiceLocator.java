@@ -31,17 +31,23 @@ public class JarvizServiceLocator {
         return createServiceLocator(jarvizConfig, JarvizServiceLocator.class.getName());
     }
 
-    public static ServiceLocator createServiceLocator(@Nonnull final JarvizConfig jarvizConfig, @Nonnull final String name) {
+    public static ServiceLocator createServiceLocator(@Nonnull final JarvizConfig jarvizConfig,
+            @Nonnull final String name) {
         final ServiceLocator serviceLocator = ServiceLocatorFactory.getInstance().create(name);
-        ServiceLocatorUtilities.bind(serviceLocator, new AbstractBinder() {
 
+        // Create instances manually to ensure proper dependency injection
+        MavenArtifactDiscoveryService artifactDiscoveryService = new MavenArtifactDiscoveryService(jarvizConfig);
+        JarClassLoaderService classLoaderService = new JarClassLoaderService(artifactDiscoveryService);
+
+        ServiceLocatorUtilities.bind(serviceLocator, new AbstractBinder() {
             @Override
             protected void configure() {
                 // configs
                 bind(jarvizConfig).to(JarvizConfig.class);
-                bind(MavenArtifactDiscoveryService.class).to(ArtifactDiscoveryService.class);
 
-                bind(JarClassLoaderService.class).to(ClassLoaderService.class);
+                // Bind instances (not classes) to ensure they're properly wired together
+                bind(artifactDiscoveryService).to(ArtifactDiscoveryService.class);
+                bind(classLoaderService).to(ClassLoaderService.class);
             }
         });
 
