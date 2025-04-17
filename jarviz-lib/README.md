@@ -271,6 +271,19 @@ See the full sample file: [sample_jarviz_result.jsonl](../jarviz-cli/samples/sam
 - `targetClass` - The fully qualified name of the target class in the coupling.
 - `targetMethod` - The method name (of the target class) in the coupling.
 
+### Coupling Counting Uniqueness
+
+Jarviz lists and counts all non-unique instances of method couplings as they appear in bytecode. If a source method invokes the same target method multiple times (for example, in loops or different code paths), each invocation is recorded as a separate coupling entry. As a result, the output may contain duplicate source–target pairs when the same call site is encountered multiple times.
+
+**Justifications:**
+
+- **Bytecode-level analysis:** Jarviz uses ASM to traverse and inspect each method invocation opcode in the compiled bytecode.
+- **Invocation interception:** The `FilteredMethodVisitor` hooks into every call site instruction (`invokevirtual`, `invokespecial`, `invokestatic`, `invokeinterface`, and `invokedynamic`).
+- **Per-instruction collection:** Each call site is immediately wrapped into a `MethodCoupling` object and passed to the `UsageCollector`.
+- **Multimap storage:** `UsageCollector` accumulates couplings in a Guava `LinkedHashMultimap`, which allows multiple identical entries for the same key–value pair.
+- **Output generation:** The final list of couplings is derived directly from `Multimap.entries()`, preserving each individual invocation instance.
+- **Distinct call sites:** Repeated calls from the same source method to the same target method—whether in loops, branches, or separate code paths—are reported separately.
+
 #### Java References
 
 | Link                                                                                              |
